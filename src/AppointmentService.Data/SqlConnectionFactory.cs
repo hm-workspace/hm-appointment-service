@@ -1,4 +1,4 @@
-﻿using System.Data;
+using System.Data;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 
@@ -13,12 +13,14 @@ public class SqlConnectionFactory : IDbConnectionFactory
         _configuration = configuration;
     }
 
-    public IDbConnection CreateConnection()
+    public IDbConnection CreateConnection(string connectionName = "DefaultConnection")
     {
-        var connectionString = _configuration.GetConnectionString("DefaultConnection")
-            ?? throw new InvalidOperationException("Connection string 'DefaultConnection' is missing.");
+        var connectionString = _configuration.GetConnectionString(connectionName)
+            ?? throw new InvalidOperationException($"Connection string '{connectionName}' is missing.");
         return new SqlConnection(connectionString);
     }
 }
+
+
 
 
