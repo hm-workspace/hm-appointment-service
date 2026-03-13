@@ -1,13 +1,17 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
-
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
-
   <ItemGroup>
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
   </ItemGroup>
-
+  <ItemGroup>
+    <ProjectReference Include="..\AppointmentService.Data\AppointmentService.Data.csproj" />
+    <ProjectReference Include="..\AppointmentService.Repository\AppointmentService.Repository.csproj" />
+    <ProjectReference Include="..\AppointmentService.Services\AppointmentService.Services.csproj" />
+    <ProjectReference Include="..\AppointmentService.InternalModels\AppointmentService.InternalModels.csproj" />
+    <ProjectReference Include="..\AppointmentService.Utils\AppointmentService.Utils.csproj" />
+  </ItemGroup>
 </Project>
