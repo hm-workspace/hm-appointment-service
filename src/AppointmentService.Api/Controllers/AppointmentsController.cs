@@ -1,10 +1,12 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using AppointmentService.Utils.Common;
 using AppointmentService.InternalModels.DTOs;
 using AppointmentService.Services;
 
 namespace AppointmentService.Api.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("api/appointments")]
 public class AppointmentsController : ControllerBase
