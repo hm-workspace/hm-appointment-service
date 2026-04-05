@@ -5,11 +5,11 @@ using AppointmentService.Utils.Common;
 
 namespace AppointmentService.Repository;
 
-public class DapperAppointmentRepository : IAppointmentRepository
+public class AppointmentRepository : IAppointmentRepository
 {
     private readonly IDbConnectionFactory _connectionFactory;
 
-    public DapperAppointmentRepository(IDbConnectionFactory connectionFactory)
+    public AppointmentRepository(IDbConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }
