@@ -2,173 +2,189 @@
 using AppointmentService.Data;
 using AppointmentService.InternalModels.Entities;
 using AppointmentService.Utils.Common;
+using System.Data;
 
 namespace AppointmentService.Repository;
 
-public class AppointmentRepository : IAppointmentRepository
+public class AppointmentRepository : BaseRepository, IAppointmentRepository
 {
-    private readonly IDbConnectionFactory _connectionFactory;
-
     public AppointmentRepository(IDbConnectionFactory connectionFactory)
+        : base(connectionFactory)
     {
-        _connectionFactory = connectionFactory;
     }
 
-    public Task<PagedResult<AppointmentEntity>> GetAppointmentsAsync(SearchQuery searchQuery)
+    public async Task<PagedResult<AppointmentEntity>> GetAppointmentsAsync(SearchQuery searchQuery)
     {
-        var query = AppointmentInMemoryStore.Appointments.AsEnumerable();
-        if (!string.IsNullOrWhiteSpace(searchQuery.SearchTerm))
+        return await ExecuteWithConnectionAsync(async connection =>
         {
-            query = query.Where(x =>
-                x.AppointmentId.Contains(searchQuery.SearchTerm, StringComparison.OrdinalIgnoreCase) ||
-                x.Reason.Contains(searchQuery.SearchTerm, StringComparison.OrdinalIgnoreCase) ||
-                x.Status.Contains(searchQuery.SearchTerm, StringComparison.OrdinalIgnoreCase));
+            using var grid = await connection.QueryMultipleAsync(
+                StoredProcedureNames.GetAppointmentsPaged,
+                new { searchQuery.PageNumber, searchQuery.PageSize, SearchTerm = searchQuery.SearchTerm },
+                commandType: CommandType.StoredProcedure);
+
+            var items = (await grid.ReadAsync<AppointmentEntity>()).ToList();
+            var total = await grid.ReadFirstAsync<int>();
+            return new PagedResult<AppointmentEntity>(items, total, searchQuery.PageNumber, searchQuery.PageSize);
+        });
+    }
+
+    public Task<AppointmentEntity?> GetAppointmentByIdAsync(int id)
+    {
+        return QuerySingleOrDefaultAsync<AppointmentEntity>(
+            StoredProcedureNames.GetAppointmentById,
+            new { Id = id },
+            commandType: CommandType.StoredProcedure);
+    }
+
+    public Task<AppointmentEntity?> GetAppointmentByAppointmentIdAsync(string appointmentId)
+    {
+        return QuerySingleOrDefaultAsync<AppointmentEntity>(
+            StoredProcedureNames.GetAppointmentByAppointmentId,
+            new { AppointmentId = appointmentId },
+            commandType: CommandType.StoredProcedure);
+    }
+
+    public async Task<PagedResult<AppointmentEntity>> GetPatientAppointmentsAsync(int patientId, int pageNumber, int pageSize)
+    {
+        return await ExecuteWithConnectionAsync(async connection =>
+        {
+            using var grid = await connection.QueryMultipleAsync(
+                StoredProcedureNames.GetPatientAppointmentsPaged,
+                new { PatientId = patientId, PageNumber = pageNumber, PageSize = pageSize },
+                commandType: CommandType.StoredProcedure);
+
+            var items = (await grid.ReadAsync<AppointmentEntity>()).ToList();
+            var total = await grid.ReadFirstAsync<int>();
+            return new PagedResult<AppointmentEntity>(items, total, pageNumber, pageSize);
+        });
+    }
+
+    public async Task<PagedResult<AppointmentEntity>> GetDoctorAppointmentsAsync(int doctorId, int pageNumber, int pageSize)
+    {
+        return await ExecuteWithConnectionAsync(async connection =>
+        {
+            using var grid = await connection.QueryMultipleAsync(
+                StoredProcedureNames.GetDoctorAppointmentsPaged,
+                new { DoctorId = doctorId, PageNumber = pageNumber, PageSize = pageSize },
+                commandType: CommandType.StoredProcedure);
+
+            var items = (await grid.ReadAsync<AppointmentEntity>()).ToList();
+            var total = await grid.ReadFirstAsync<int>();
+            return new PagedResult<AppointmentEntity>(items, total, pageNumber, pageSize);
+        });
+    }
+
+    public async Task<PagedResult<AppointmentEntity>> GetUpcomingAppointmentsAsync(int pageNumber, int pageSize)
+    {
+        return await ExecuteWithConnectionAsync(async connection =>
+        {
+            using var grid = await connection.QueryMultipleAsync(
+                StoredProcedureNames.GetUpcomingAppointmentsPaged,
+                new { PageNumber = pageNumber, PageSize = pageSize },
+                commandType: CommandType.StoredProcedure);
+
+            var items = (await grid.ReadAsync<AppointmentEntity>()).ToList();
+            var total = await grid.ReadFirstAsync<int>();
+            return new PagedResult<AppointmentEntity>(items, total, pageNumber, pageSize);
+        });
+    }
+
+    public async Task<PagedResult<AppointmentEntity>> GetAppointmentsByDateRangeAsync(DateTime startDate, DateTime endDate, int pageNumber, int pageSize)
+    {
+        return await ExecuteWithConnectionAsync(async connection =>
+        {
+            using var grid = await connection.QueryMultipleAsync(
+                StoredProcedureNames.GetAppointmentsByDateRangePaged,
+                new { StartDate = startDate, EndDate = endDate, PageNumber = pageNumber, PageSize = pageSize },
+                commandType: CommandType.StoredProcedure);
+
+            var items = (await grid.ReadAsync<AppointmentEntity>()).ToList();
+            var total = await grid.ReadFirstAsync<int>();
+            return new PagedResult<AppointmentEntity>(items, total, pageNumber, pageSize);
+        });
+    }
+
+    public async Task<bool> CheckAppointmentConflictAsync(int doctorId, DateTime appointmentDate, string appointmentTime, int? excludeAppointmentId = null)
+    {
+        var conflict = await ExecuteScalarAsync<int>(
+            StoredProcedureNames.CheckAppointmentConflict,
+            new
+            {
+                DoctorId = doctorId,
+                AppointmentDate = appointmentDate,
+                AppointmentTime = appointmentTime,
+                ExcludeAppointmentId = excludeAppointmentId
+            },
+            commandType: CommandType.StoredProcedure);
+
+        return conflict > 0;
+    }
+
+    public async Task<string> GenerateAppointmentIdAsync()
+    {
+        return await ExecuteScalarAsync<string>(
+            StoredProcedureNames.GenerateAppointmentId,
+            commandType: CommandType.StoredProcedure) ?? string.Empty;
+    }
+
+    public async Task<AppointmentEntity> CreateAppointmentAsync(AppointmentEntity appointment)
+    {
+        var id = await ExecuteScalarAsync<int>(
+            StoredProcedureNames.CreateAppointment,
+            appointment,
+            commandType: CommandType.StoredProcedure);
+
+        appointment.Id = id;
+        if (string.IsNullOrWhiteSpace(appointment.AppointmentId))
+        {
+            appointment.AppointmentId = $"APT{id:000}";
+        }
+        return appointment;
+    }
+
+    public async Task<AppointmentEntity?> UpdateAppointmentAsync(int id, AppointmentEntity appointment)
+    {
+        var rowsAffected = await ExecuteAsync(
+            StoredProcedureNames.UpdateAppointment,
+            new
+            {
+                Id = id,
+                appointment.PatientId,
+                appointment.DoctorId,
+                appointment.AppointmentDate,
+                appointment.AppointmentTime,
+                appointment.Reason,
+                appointment.Status,
+                appointment.Notes,
+                appointment.CancelReason
+            },
+            commandType: CommandType.StoredProcedure);
+
+        if (rowsAffected <= 0)
+        {
+            return null;
         }
 
-        var total = query.Count();
-        var items = query.OrderBy(x => x.AppointmentDate)
-            .Skip((searchQuery.PageNumber - 1) * searchQuery.PageSize)
-            .Take(searchQuery.PageSize)
-            .ToList();
-
-        return Task.FromResult(new PagedResult<AppointmentEntity>(items, total, searchQuery.PageNumber, searchQuery.PageSize));
+        return await GetAppointmentByIdAsync(id);
     }
 
-    public Task<AppointmentEntity?> GetAppointmentByIdAsync(int id) =>
-        Task.FromResult(AppointmentInMemoryStore.Appointments.FirstOrDefault(x => x.Id == id));
-
-    public Task<AppointmentEntity?> GetAppointmentByAppointmentIdAsync(string appointmentId) =>
-        Task.FromResult(AppointmentInMemoryStore.Appointments.FirstOrDefault(x => x.AppointmentId.Equals(appointmentId, StringComparison.OrdinalIgnoreCase)));
-
-    public Task<PagedResult<AppointmentEntity>> GetPatientAppointmentsAsync(int patientId, int pageNumber, int pageSize)
+    public async Task<bool> DeleteAppointmentAsync(int id)
     {
-        return Task.FromResult(PageResult(AppointmentInMemoryStore.Appointments.Where(x => x.PatientId == patientId), pageNumber, pageSize));
+        var rowsAffected = await ExecuteAsync(
+            StoredProcedureNames.DeleteAppointment,
+            new { Id = id },
+            commandType: CommandType.StoredProcedure);
+        return rowsAffected > 0;
     }
 
-    public Task<PagedResult<AppointmentEntity>> GetDoctorAppointmentsAsync(int doctorId, int pageNumber, int pageSize)
+    public async Task<bool> CancelAppointmentAsync(int id, string reason)
     {
-        return Task.FromResult(PageResult(AppointmentInMemoryStore.Appointments.Where(x => x.DoctorId == doctorId), pageNumber, pageSize));
+        var rowsAffected = await ExecuteAsync(
+            StoredProcedureNames.CancelAppointment,
+            new { Id = id, Reason = reason },
+            commandType: CommandType.StoredProcedure);
+        return rowsAffected > 0;
     }
-
-    public Task<PagedResult<AppointmentEntity>> GetUpcomingAppointmentsAsync(int pageNumber, int pageSize)
-    {
-        var now = DateTime.UtcNow;
-        return Task.FromResult(PageResult(
-            AppointmentInMemoryStore.Appointments.Where(x =>
-                x.AppointmentDate >= now &&
-                !x.Status.Equals("Cancelled", StringComparison.OrdinalIgnoreCase)),
-            pageNumber,
-            pageSize));
-    }
-
-    public Task<PagedResult<AppointmentEntity>> GetAppointmentsByDateRangeAsync(DateTime startDate, DateTime endDate, int pageNumber, int pageSize)
-    {
-        return Task.FromResult(PageResult(
-            AppointmentInMemoryStore.Appointments.Where(x => x.AppointmentDate >= startDate && x.AppointmentDate <= endDate),
-            pageNumber,
-            pageSize));
-    }
-
-    public Task<bool> CheckAppointmentConflictAsync(int doctorId, DateTime appointmentDate, string appointmentTime, int? excludeAppointmentId = null)
-    {
-        var conflict = AppointmentInMemoryStore.Appointments.Any(x =>
-            x.DoctorId == doctorId &&
-            x.AppointmentDate.Date == appointmentDate.Date &&
-            x.AppointmentTime.Equals(appointmentTime, StringComparison.OrdinalIgnoreCase) &&
-            (!excludeAppointmentId.HasValue || x.Id != excludeAppointmentId.Value) &&
-            !x.Status.Equals("Cancelled", StringComparison.OrdinalIgnoreCase));
-
-        return Task.FromResult(conflict);
-    }
-
-    public Task<string> GenerateAppointmentIdAsync()
-    {
-        var next = AppointmentInMemoryStore.Appointments.Count + 1;
-        return Task.FromResult($"APT{next:000}");
-    }
-
-    public Task<AppointmentEntity> CreateAppointmentAsync(AppointmentEntity appointment)
-    {
-        appointment.Id = Interlocked.Increment(ref AppointmentInMemoryStore.AppointmentSeed);
-        AppointmentInMemoryStore.Appointments.Add(appointment);
-        return Task.FromResult(appointment);
-    }
-
-    public Task<AppointmentEntity?> UpdateAppointmentAsync(int id, AppointmentEntity appointment)
-    {
-        var existing = AppointmentInMemoryStore.Appointments.FirstOrDefault(x => x.Id == id);
-        if (existing is null)
-        {
-            return Task.FromResult<AppointmentEntity?>(null);
-        }
-
-        existing.PatientId = appointment.PatientId;
-        existing.DoctorId = appointment.DoctorId;
-        existing.AppointmentDate = appointment.AppointmentDate;
-        existing.AppointmentTime = appointment.AppointmentTime;
-        existing.Reason = appointment.Reason;
-        existing.Status = appointment.Status;
-        existing.Notes = appointment.Notes;
-
-        return Task.FromResult<AppointmentEntity?>(existing);
-    }
-
-    public Task<bool> DeleteAppointmentAsync(int id)
-    {
-        var existing = AppointmentInMemoryStore.Appointments.FirstOrDefault(x => x.Id == id);
-        if (existing is null)
-        {
-            return Task.FromResult(false);
-        }
-
-        AppointmentInMemoryStore.Appointments.Remove(existing);
-        return Task.FromResult(true);
-    }
-
-    public Task<bool> CancelAppointmentAsync(int id, string reason)
-    {
-        var appointment = AppointmentInMemoryStore.Appointments.FirstOrDefault(x => x.Id == id);
-        if (appointment is null)
-        {
-            return Task.FromResult(false);
-        }
-
-        appointment.Status = "Cancelled";
-        appointment.CancelReason = reason;
-        return Task.FromResult(true);
-    }
-
-    private static PagedResult<AppointmentEntity> PageResult(IEnumerable<AppointmentEntity> source, int pageNumber, int pageSize)
-    {
-        var total = source.Count();
-        var items = source.OrderBy(x => x.AppointmentDate)
-            .Skip((pageNumber - 1) * pageSize)
-            .Take(pageSize)
-            .ToList();
-        return new PagedResult<AppointmentEntity>(items, total, pageNumber, pageSize);
-    }
-}
-
-internal static class AppointmentInMemoryStore
-{
-    public static int AppointmentSeed = 1;
-
-    public static readonly List<AppointmentEntity> Appointments =
-    [
-        new AppointmentEntity
-        {
-            Id = 1,
-            AppointmentId = "APT001",
-            PatientId = 1,
-            DoctorId = 1,
-            AppointmentDate = DateTime.UtcNow.AddDays(1).Date.AddHours(10),
-            AppointmentTime = "10:00",
-            Reason = "General Consultation",
-            Status = "Scheduled",
-            Notes = string.Empty,
-            CancelReason = string.Empty
-        }
-    ];
 }
 
 
